@@ -1,0 +1,17 @@
+from "#fs" import everything as fs
+
+export function test()
+    print("wawa")
+end
+
+let file: string or none = none
+
+try
+    file = fs.readToString("./test.txt")
+catch err
+    print(err)
+end
+
+print(file)
+
+export file

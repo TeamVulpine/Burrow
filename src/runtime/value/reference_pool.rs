@@ -30,12 +30,12 @@ pub enum ReferenceType {
 }
 
 pub struct Object {
-    pub values: Mutex<IndexMap<StrReference, Value>>,
-    pub prototype: Mutex<Value>,
+    pub values: RwLock<IndexMap<StrReference, Value>>,
+    pub prototype: RwLock<Value>,
 }
 
 pub struct Array {
-    pub values: Mutex<Vec<Value>>,
+    pub values: RwLock<Vec<Value>>,
 }
 
 pub struct MarkChildren<'a> {
@@ -99,8 +99,8 @@ impl ReferencePool {
     pub fn new_object<'a>(self: &'a Arc<Self>) -> Result<Reference, Box<dyn Error + 'a>> {
         return self.emplace(|| {
             ReferenceType::Object(Object {
-                values: Mutex::new(IndexMap::new()),
-                prototype: Mutex::new(Value::None),
+                values: RwLock::new(IndexMap::new()),
+                prototype: RwLock::new(Value::None),
             })
         });
     }
@@ -108,7 +108,7 @@ impl ReferencePool {
     pub fn new_array<'a>(self: &'a Arc<Self>) -> Result<Reference, Box<dyn Error + 'a>> {
         return self.emplace(|| {
             ReferenceType::Array(Array {
-                values: Mutex::new(vec![]),
+                values: RwLock::new(vec![]),
             })
         });
     }
@@ -196,15 +196,15 @@ impl ReferencePool {
 
                     let mut marker = MarkChildren::new(self.clone(), &values, base_index);
 
+                    println!("Counting cycles for reference {}", base_index);
+
                     marker.mark_index(base_index);
 
                     let cycle_count = marker.count;
 
-                    println!("Cycle count: {}", cycle_count);
-
                     let ref_count = value.ref_count;
                     if ref_count <= cycle_count {
-                        println!("Cycle count >= reference count ({}), deleting", ref_count);
+                        println!("Cycle count ({}) >= reference count ({}), deleting", cycle_count, ref_count);
                         
                         indices_to_delete.push(base_index);
                         finalize.insert(base_index);
@@ -290,7 +290,7 @@ impl<'a> MarkChildren<'a> {
         if let Some(value) = &*lock.read().unwrap() {
             match value.value.as_ref() {
                 ReferenceType::Array(arr) => {
-                    let values = arr.values.lock().unwrap();
+                    let values = arr.values.read().unwrap();
                     for child_index in 0..values.len() {
                         println!("Marking index {}", child_index);
                         self.mark_child(&values[child_index]);
@@ -298,15 +298,22 @@ impl<'a> MarkChildren<'a> {
                 }
 
                 ReferenceType::Object(obj) => {
-                    let values = obj.values.lock().unwrap();
-                    for child in values.iter() {
-                        println!("Marking field {}", child.0);
-                        self.mark_child(child.1);
+                    {
+                        let values = obj.values.read().unwrap();
+                        for child in values.iter() {
+                            println!("Marking field {}", child.0);
+
+                            self.mark_child(child.1);
+                        }
                     }
 
-                    let proto = obj.prototype.lock().unwrap();
-                    println!("Marking prototype");
-                    self.mark_child(&proto);
+                    {
+                        let proto = obj.prototype.read().unwrap();
+
+                        println!("Marking prototype");
+
+                        self.mark_child(&proto);
+                    }
                 }
             }
         }

@@ -8,6 +8,7 @@ use super::Runtime;
 pub mod reference_pool;
 pub mod string_pool;
 
+#[derive(Clone)]
 pub enum Value {
     Integer(i64),
     Float(f64),

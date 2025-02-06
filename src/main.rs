@@ -1,7 +1,7 @@
 #![feature(decl_macro, negative_impls, str_as_str, let_chains)]
 #![allow(clippy::needless_return)]
 
-use runtime::{value::reference_pool::ReferenceType, Runtime};
+use runtime::{value::{reference_pool::ReferenceType, Value}, Runtime};
 
 pub mod parse_tree;
 pub mod runtime;
@@ -18,9 +18,9 @@ fn main() {
         let ReferenceType::Object(val) = obj.as_ref() else {
             panic!();
         };
-        let mut values = val.values.lock().unwrap();
+        let mut values = val.values.write().unwrap();
 
-        values.insert(name, runtime::value::Value::Reference(obj_ref.clone()));
+        values.insert(name, Value::Reference(obj_ref.clone()));
     }
 
     rt.reference_pool.collect_garbage().unwrap();

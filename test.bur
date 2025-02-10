@@ -1,5 +1,9 @@
 from "#fs" import everything as fs
 
+declare module "#fs" is
+    function readToString(file: string): string
+end
+
 export function test()
     print("wawa")
 end

@@ -37,6 +37,7 @@ impl ArrayExpr {
             value.generate_bytecode(bytecode)?;
             
             bytecode.push(OpCode::StoreIndex);
+            bytecode.push(OpCode::Pop);
         }
 
         return Ok(());

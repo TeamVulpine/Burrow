@@ -51,6 +51,7 @@ impl ParseTree {
                                 bytecode.push(OpCode::Dupe);
                                 bytecode.push(OpCode::InitVariable { name: name.clone() });
                                 bytecode.push(OpCode::StoreVariable { name: name.clone() });
+                                bytecode.push(OpCode::Pop);
                                 bytecode.push(OpCode::MarkVariableConst { name: name.clone() });
                             },
                             FromImportKind::Single { name, rename } => {
@@ -65,6 +66,7 @@ impl ParseTree {
                                 bytecode.push(OpCode::PushConstString { value: name.clone() });
                                 bytecode.push(OpCode::PushIndex);
                                 bytecode.push(OpCode::StoreVariable { name: value_name.clone() });
+                                bytecode.push(OpCode::Pop);
                                 bytecode.push(OpCode::MarkVariableConst { name: value_name.clone() });
                             }
                         }
@@ -85,6 +87,7 @@ impl ParseTree {
                 bytecode.push(OpCode::StoreProtorype);
             }
             bytecode.push(OpCode::StoreVariable { name: class.name.clone() });
+            bytecode.push(OpCode::Pop);
             bytecode.push(OpCode::MarkVariableConst { name: class.name.clone() });
 
             if class.export {
@@ -102,12 +105,14 @@ impl ParseTree {
                 bytecode.push(OpCode::PushConstString { value: func.decl.name.clone() });
                 bytecode.push(OpCode::PushFunction { index: i });
                 bytecode.push(OpCode::StoreIndex);
+                bytecode.push(OpCode::Pop);
                 continue;
             }
 
             bytecode.push(OpCode::InitVariable { name: func.decl.name.clone() });
             bytecode.push(OpCode::PushFunction { index: i });
             bytecode.push(OpCode::StoreVariable { name: func.decl.name.clone() });
+            bytecode.push(OpCode::Pop);
             bytecode.push(OpCode::MarkVariableConst { name: func.decl.name.clone() });
 
             if func.export {

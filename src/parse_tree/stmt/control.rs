@@ -238,6 +238,7 @@ impl TryStmt {
         bytecode.push(OpCode::StoreVariable {
             name: self.catch_name.clone(),
         });
+        bytecode.push(OpCode::Pop);
         bytecode.push(OpCode::MarkVariableConst {
             name: self.catch_name.clone(),
         });
@@ -448,6 +449,7 @@ impl ForStmt {
         bytecode.push(OpCode::StoreVariable {
             name: value_name.clone(),
         });
+        bytecode.push(OpCode::Pop);
 
         bytecode.push(OpCode::InitVariable {
             name: index_name.clone(),
@@ -456,9 +458,10 @@ impl ForStmt {
         bytecode.push(OpCode::StoreVariable {
             name: index_name.clone(),
         });
+        bytecode.push(OpCode::Pop);
 
         bytecode.push(OpCode::Jump {
-            location: bytecode.len() + 5,
+            location: bytecode.len() + 6,
         });
 
         let increment_pos = bytecode.len();
@@ -471,6 +474,7 @@ impl ForStmt {
         bytecode.push(OpCode::StoreVariable {
             name: index_name.clone(),
         });
+        bytecode.push(OpCode::Pop);
 
         bytecode.push(OpCode::PushVariable {
             name: index_name.clone(),

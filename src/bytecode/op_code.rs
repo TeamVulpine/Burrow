@@ -8,7 +8,7 @@ pub enum OpCode {
         slice: StringSlice,
     },
 
-    /// Pushes a value
+    /// Pushes a variable
     PushVariable {
         name: Arc<str>,
     },

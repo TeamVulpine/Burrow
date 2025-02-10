@@ -120,6 +120,7 @@ impl VariableImpl {
             init.generate_bytecode(bytecode)?;
 
             bytecode.push(OpCode::StoreVariable { name: name.clone() });
+            bytecode.push(OpCode::Pop);
         }
 
         if self.decl.is_const {

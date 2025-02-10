@@ -46,6 +46,7 @@ impl ObjectExpr {
                 slice: self.slice.clone(),
             });
             bytecode.push(OpCode::StoreIndex);
+            bytecode.push(OpCode::Pop);
         }
 
         return Ok(());

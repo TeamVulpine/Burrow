@@ -9,6 +9,6 @@ A scripting language for the layman
 - Optional type hints
 - Runtime bindings for C
 
-## Priniples
+## Principles
 - Code should be understood with little knowledge of the language
 - Syntax should be easy for beginners to understand, while being powerful enough for more experienced programmers

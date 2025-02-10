@@ -10,11 +10,11 @@ pub mod string_pool;
 
 #[derive(Clone)]
 pub enum Value {
-    Integer(i64),
-    Float(f64),
-    Boolean(bool),
     String(StrReference),
     Reference(Reference),
+    Integer(i32),
+    Float(f32),
+    Boolean(bool),
     None,
 }
 

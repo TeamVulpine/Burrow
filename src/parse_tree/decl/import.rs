@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    parse_tree::{if_next, is_next, require_next, try_next, try_parse, ParserError},
+    parse_tree::{if_next, require_next, try_next, try_parse, ParserError},
     string::StringSlice,
     tokenizer::{
         token::{Keyword, TokenKind},
@@ -35,7 +35,6 @@ pub struct DirectImport {
 pub struct FromImport {
     pub slice: StringSlice,
     pub file: Arc<str>,
-    pub export: bool,
     pub values: Arc<[FromInportValue]>,
 }
 
@@ -94,11 +93,7 @@ impl FromImport {
 
         let end = tokenizer.peek(0)?.slice;
 
-        let export = is_next!(TokenKind::Keyword(Keyword::Export), tokenizer);
-
-        if !export {
-            require_next!(TokenKind::Keyword(Keyword::Import), tokenizer);
-        }
+        require_next!(TokenKind::Keyword(Keyword::Import), tokenizer);
 
         let mut values = vec![];
         let mut end = end;
@@ -112,7 +107,6 @@ impl FromImport {
         return Ok(Some(Self {
             slice: start.merge(&end),
             file,
-            export,
             values: values.into_boxed_slice().into(),
         }));
     }

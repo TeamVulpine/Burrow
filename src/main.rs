@@ -1,8 +1,15 @@
 #![feature(decl_macro, negative_impls, str_as_str, let_chains)]
 #![allow(clippy::needless_return)]
 
-use runtime::{value::{reference_pool::ReferenceType, Value}, Runtime};
+use runtime::{
+    value::{
+        reference_pool::{ObjectValue, ReferenceType},
+        Value,
+    },
+    Runtime,
+};
 
+pub mod bytecode;
 pub mod parse_tree;
 pub mod runtime;
 pub mod string;
@@ -20,7 +27,10 @@ fn main() {
         };
         let mut values = val.values.write().unwrap();
 
-        values.insert(name, Value::Reference(obj_ref.clone()));
+        values.insert(
+            name,
+            ObjectValue::of_mutable(Value::Reference(obj_ref.clone())),
+        );
     }
 
     rt.reference_pool.collect_garbage().unwrap();

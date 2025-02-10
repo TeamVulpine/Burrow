@@ -1,8 +1,12 @@
 use std::{
-    collections::HashSet, error::Error, sync::{Arc, Mutex, RwLock}
+    collections::HashSet,
+    error::Error,
+    sync::{Arc, Mutex, RwLock},
 };
 
 use indexmap::IndexMap;
+
+use crate::bytecode::CompiledModule;
 
 use super::{string_pool::StrReference, Value};
 
@@ -21,21 +25,33 @@ pub struct ReferencePoolValue {
 
 pub struct Reference {
     pool: Arc<ReferencePool>,
-    index: usize
+    index: usize,
 }
 
 pub enum ReferenceType {
     Object(Object),
     Array(Array),
+    Function(FunctionReference),
 }
 
 pub struct Object {
-    pub values: RwLock<IndexMap<StrReference, Value>>,
+    pub values: RwLock<IndexMap<StrReference, ObjectValue>>,
     pub prototype: RwLock<Value>,
+}
+
+pub struct ObjectValue {
+    pub is_const: RwLock<bool>,
+    pub value: RwLock<Value>,
 }
 
 pub struct Array {
     pub values: RwLock<Vec<Value>>,
+}
+
+pub struct FunctionReference {
+    pub module: Arc<CompiledModule>,
+    pub index: usize,
+    pub context: Value,
 }
 
 pub struct MarkChildren<'a> {
@@ -78,7 +94,7 @@ impl ReferencePool {
 
                 return Ok(Reference {
                     pool: self.clone(),
-                    index
+                    index,
                 });
             }
         }
@@ -92,7 +108,7 @@ impl ReferencePool {
 
         return Ok(Reference {
             pool: self.clone(),
-            index
+            index,
         });
     }
 
@@ -148,12 +164,12 @@ impl ReferencePool {
 
         return Ok(Reference {
             pool: self.clone(),
-            index
+            index,
         });
     }
 
     fn drop_reference<'a>(self: &'a Arc<Self>, index: usize) -> Result<(), Box<dyn Error + 'a>> {
-        { 
+        {
             let finalize = self.finalize.lock()?;
 
             if finalize.contains(&index) {
@@ -204,8 +220,11 @@ impl ReferencePool {
 
                     let ref_count = value.ref_count;
                     if ref_count <= cycle_count {
-                        println!("Cycle count ({}) >= reference count ({}), deleting", cycle_count, ref_count);
-                        
+                        println!(
+                            "Cycle count ({}) >= reference count ({}), deleting",
+                            cycle_count, ref_count
+                        );
+
                         indices_to_delete.push(base_index);
                         finalize.insert(base_index);
                     }
@@ -252,7 +271,11 @@ impl Clone for Reference {
 }
 
 impl<'a> MarkChildren<'a> {
-    fn new(pool: Arc<ReferencePool>, values: &'a Vec<RwLock<Option<ReferencePoolValue>>>, base_index: usize) -> Self {
+    fn new(
+        pool: Arc<ReferencePool>,
+        values: &'a Vec<RwLock<Option<ReferencePoolValue>>>,
+        base_index: usize,
+    ) -> Self {
         return Self {
             pool,
             values,
@@ -267,7 +290,7 @@ impl<'a> MarkChildren<'a> {
             if !Arc::ptr_eq(&self.pool, &reference.pool) {
                 panic!("Values from different runtimes cannot intermingle.");
             }
-    
+
             if self.visited.contains(&reference.index) {
                 println!("Found cycle of reference {}", reference.index);
                 if reference.index == self.base_index {
@@ -303,7 +326,9 @@ impl<'a> MarkChildren<'a> {
                         for child in values.iter() {
                             println!("Marking field {}", child.0);
 
-                            self.mark_child(child.1);
+                            let field = child.1.value.read().unwrap();
+
+                            self.mark_child(&field);
                         }
                     }
 
@@ -315,7 +340,28 @@ impl<'a> MarkChildren<'a> {
                         self.mark_child(&proto);
                     }
                 }
+
+                ReferenceType::Function(func) => {
+                    println!("Marking function context");
+                    self.mark_child(&func.context);
+                }
             }
         }
+    }
+}
+
+impl ObjectValue {
+    pub fn of_mutable(v: Value) -> Self {
+        return Self {
+            is_const: RwLock::new(false),
+            value: RwLock::new(v),
+        };
+    }
+
+    pub fn of_immutable(v: Value) -> Self {
+        return Self {
+            is_const: RwLock::new(false),
+            value: RwLock::new(v),
+        };
     }
 }

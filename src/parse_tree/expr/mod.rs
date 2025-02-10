@@ -8,6 +8,7 @@ use op::{
 use value::{array::ArrayExpr, literal::LiteralExpr, object::ObjectExpr};
 
 use crate::{
+    bytecode::{op_code::OpCode, BytecodeGenerationError},
     parse_tree::{if_next, if_parse, require_next, require_parse},
     string::StringSlice,
     tokenizer::{
@@ -39,6 +40,23 @@ pub enum ExprKind {
 }
 
 impl Expr {
+    pub fn generate_bytecode(
+        &self,
+        bytecode: &mut Vec<OpCode>,
+    ) -> Result<(), BytecodeGenerationError> {
+        bytecode.push(OpCode::SetSlice {
+            slice: self.slice.clone(),
+        });
+        return match &self.kind {
+            ExprKind::Literal(lit) => lit.generate_bytecode(bytecode),
+            ExprKind::Object(obj) => obj.generate_bytecode(bytecode),
+            ExprKind::Array(arr) => arr.generate_bytecode(bytecode),
+            ExprKind::BinOp(op) => op.generate_bytecode(bytecode),
+            ExprKind::UnaryOp(op) => op.generate_bytecode(bytecode),
+            ExprKind::Access(access) => access.generate_bytecode(bytecode),
+        };
+    }
+
     pub fn try_parse(tokenizer: &mut Tokenizer) -> Result<Option<Self>, ParserError> {
         return Self::try_parse_binop(tokenizer, 0);
     }

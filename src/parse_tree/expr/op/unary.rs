@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
+    bytecode::{op_code::OpCode, BytecodeGenerationError},
     parse_tree::{expr::Expr, ParserError},
     string::StringSlice,
     tokenizer::{
@@ -21,6 +22,27 @@ pub enum UnaryOpKind {
     Add,
     Sub,
     Not,
+}
+
+impl UnaryOpExpr {
+    pub fn generate_bytecode(
+        &self,
+        bytecode: &mut Vec<OpCode>,
+    ) -> Result<(), BytecodeGenerationError> {
+        self.value.generate_bytecode(bytecode)?;
+
+        bytecode.push(OpCode::SetSlice {
+            slice: self.slice.clone(),
+        });
+
+        match self.op {
+            UnaryOpKind::Add => bytecode.push(OpCode::OpUnaryAdd),
+            UnaryOpKind::Sub => bytecode.push(OpCode::OpUnarySub),
+            UnaryOpKind::Not => bytecode.push(OpCode::OpUnaryNot),
+        }
+
+        return Ok(());
+    }
 }
 
 impl UnaryOpKind {

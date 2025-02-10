@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
+    bytecode::{op_code::OpCode, BytecodeGenerationError},
     parse_tree::{if_next, require_next, require_parse, ParserError},
     string::StringSlice,
     tokenizer::{
@@ -9,12 +10,21 @@ use crate::{
     },
 };
 
-use super::Expr;
+use super::{
+    value::literal::{LiteralExpr, LiteralExprKind},
+    Expr, ExprKind,
+};
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct AccessExpr {
     pub slice: StringSlice,
     pub base: Arc<Expr>,
+    pub access: Arc<[AccessArm]>,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct AccessArm {
+    pub slice: StringSlice,
     pub kind: AccessKind,
 }
 
@@ -23,70 +33,312 @@ pub enum AccessKind {
     Ident(Arc<str>),
     Index(Arc<Expr>),
     Invoke(Arc<[Expr]>),
+    Assign(Arc<Expr>),
     Prototype,
 }
 
 impl AccessExpr {
-    pub fn try_parse(tokenizer: &mut Tokenizer, base: &Expr) -> Result<Option<Self>, ParserError> {
-        if_next!(TokenKind::Symbol(Symbol::Dot), tokenizer, {
-            let end = tokenizer.peek(0)?.slice;
-            if_next!(TokenKind::Keyword(Keyword::Prototype), tokenizer, {
-                return Ok(Some(Self {
-                    slice: base.slice.merge(&end),
-                    base: Arc::new(base.clone()),
-                    kind: AccessKind::Prototype,
-                }));
+    pub fn generate_bytecode(
+        &self,
+        bytecode: &mut Vec<OpCode>,
+    ) -> Result<(), BytecodeGenerationError> {
+        if self.access.len() == 1
+            && let AccessKind::Assign(assign) = &self.access[0].kind
+            && let ExprKind::Literal(LiteralExpr {
+                slice: _,
+                kind: LiteralExprKind::Variable(name),
+            }) = &self.base.kind
+        {
+            assign.generate_bytecode(bytecode)?;
+
+            bytecode.push(OpCode::SetSlice {
+                slice: self.slice.clone(),
+            });
+            bytecode.push(OpCode::StoreVariable { name: name.clone() });
+
+            return Ok(());
+        }
+
+        self.base.generate_bytecode(bytecode)?;
+
+        let mut idx = 0;
+
+        while idx < self.access.len() {
+            let value = &self.access[idx];
+            bytecode.push(OpCode::SetSlice {
+                slice: value.slice.clone(),
             });
 
-            require_next!(TokenKind::Identifier(ident), tokenizer);
+            match &value.kind {
+                AccessKind::Assign(_) => {
+                    return Err(BytecodeGenerationError::IllegalAssignment(
+                        value.slice.clone(),
+                    ))
+                }
 
-            return Ok(Some(Self {
-                slice: base.slice.merge(&end),
-                base: Arc::new(base.clone()),
-                kind: AccessKind::Ident(ident),
-            }));
-        });
+                AccessKind::Ident(name) => {
+                    if idx < self.access.len() - 1
+                        && let AccessKind::Assign(assignment) = &self.access[idx + 1].kind
+                    {
+                        bytecode.push(OpCode::PushConstString {
+                            value: name.clone(),
+                        });
 
-        if_next!(TokenKind::Symbol(Symbol::BracketOpen), tokenizer, {
-            require_parse!(expr, Expr, tokenizer);
+                        assignment.generate_bytecode(bytecode)?;
 
-            let end = tokenizer.peek(0)?.slice;
-            require_next!(TokenKind::Symbol(Symbol::BracketClose), tokenizer);
+                        bytecode.push(OpCode::SetSlice {
+                            slice: value.slice.clone(),
+                        });
 
-            return Ok(Some(Self {
-                slice: base.slice.merge(&end),
-                base: Arc::new(base.clone()),
-                kind: AccessKind::Index(Arc::new(expr)),
-            }));
-        });
+                        bytecode.push(OpCode::StoreIndex);
 
-        if_next!(TokenKind::Symbol(Symbol::ParenOpen), tokenizer, {
-            let mut values = vec![];
+                        // When parsing, index is always the last one
+                        break;
+                    }
 
-            let end = loop {
-                let end = tokenizer.peek(0)?.slice;
-                if_next!(TokenKind::Symbol(Symbol::ParenClose), tokenizer, {
-                    break end;
+                    if idx < self.access.len() - 1
+                        && let AccessKind::Invoke(invocation) = &self.access[idx + 1].kind
+                    {
+                        bytecode.push(OpCode::Dupe);
+
+                        bytecode.push(OpCode::PushConstString {
+                            value: name.clone(),
+                        });
+                        bytecode.push(OpCode::PushIndex);
+
+                        for value in invocation.iter() {
+                            value.generate_bytecode(bytecode)?;
+                        }
+                        bytecode.push(OpCode::SetSlice {
+                            slice: self.access[idx + 1].slice.clone(),
+                        });
+
+                        bytecode.push(OpCode::Invoke {
+                            param_count: invocation.len(),
+                            this_call: true,
+                        });
+
+                        idx += 2;
+                        continue;
+                    }
+
+                    bytecode.push(OpCode::PushConstString {
+                        value: name.clone(),
+                    });
+                    bytecode.push(OpCode::PushIndex);
+                }
+
+                AccessKind::Index(index) => {
+                    if idx < self.access.len() - 1
+                        && let AccessKind::Assign(assignment) = &self.access[idx + 1].kind
+                    {
+                        index.generate_bytecode(bytecode)?;
+
+                        assignment.generate_bytecode(bytecode)?;
+
+                        bytecode.push(OpCode::SetSlice {
+                            slice: value.slice.clone(),
+                        });
+
+                        bytecode.push(OpCode::StoreIndex);
+
+                        // When parsing, index is always the last one
+                        break;
+                    }
+
+                    if idx < self.access.len() - 1
+                        && let AccessKind::Invoke(invocation) = &self.access[idx + 1].kind
+                    {
+                        bytecode.push(OpCode::Dupe);
+
+                        index.generate_bytecode(bytecode)?;
+
+                        bytecode.push(OpCode::SetSlice {
+                            slice: value.slice.clone(),
+                        });
+
+                        bytecode.push(OpCode::PushIndex);
+
+                        for value in invocation.iter() {
+                            value.generate_bytecode(bytecode)?;
+                        }
+                        bytecode.push(OpCode::SetSlice {
+                            slice: self.access[idx + 1].slice.clone(),
+                        });
+
+                        bytecode.push(OpCode::Invoke {
+                            param_count: invocation.len(),
+                            this_call: true,
+                        });
+
+                        idx += 2;
+                        continue;
+                    }
+
+                    index.generate_bytecode(bytecode)?;
+                    bytecode.push(OpCode::SetSlice {
+                        slice: value.slice.clone(),
+                    });
+
+                    bytecode.push(OpCode::PushIndex);
+                }
+
+                AccessKind::Invoke(invocation) => {
+                    for value in invocation.iter() {
+                        value.generate_bytecode(bytecode)?;
+                    }
+                    bytecode.push(OpCode::SetSlice {
+                        slice: value.slice.clone(),
+                    });
+
+                    bytecode.push(OpCode::Invoke {
+                        param_count: invocation.len(),
+                        this_call: false,
+                    });
+                }
+
+                AccessKind::Prototype => {
+                    if idx < self.access.len() - 1
+                        && let AccessKind::Assign(assignment) = &self.access[idx + 1].kind
+                    {
+                        assignment.generate_bytecode(bytecode)?;
+                        bytecode.push(OpCode::SetSlice {
+                            slice: value.slice.clone(),
+                        });
+
+                        bytecode.push(OpCode::StoreProtorype);
+
+                        // When parsing, index is always the last one
+                        break;
+                    }
+
+                    if idx < self.access.len() - 1
+                        && let AccessKind::Invoke(invocation) = &self.access[idx + 1].kind
+                    {
+                        bytecode.push(OpCode::Dupe);
+
+                        bytecode.push(OpCode::PushPrototype);
+                        bytecode.push(OpCode::PushIndex);
+
+                        for value in invocation.iter() {
+                            value.generate_bytecode(bytecode)?;
+                        }
+                        bytecode.push(OpCode::SetSlice {
+                            slice: self.access[idx + 1].slice.clone(),
+                        });
+
+                        bytecode.push(OpCode::Invoke {
+                            param_count: invocation.len(),
+                            this_call: true,
+                        });
+
+                        idx += 2;
+                        continue;
+                    }
+
+                    bytecode.push(OpCode::PushPrototype);
+                    bytecode.push(OpCode::PushIndex);
+                }
+            }
+
+            idx += 1;
+        }
+
+        return Ok(());
+    }
+
+    pub fn try_parse(tokenizer: &mut Tokenizer, base: &Expr) -> Result<Option<Self>, ParserError> {
+        let mut access = vec![];
+        let mut end = base.slice.clone();
+        loop {
+            let start = tokenizer.peek(0)?.slice;
+
+            if_next!(TokenKind::Symbol(Symbol::Dot), tokenizer, {
+                end = tokenizer.peek(0)?.slice;
+                if_next!(TokenKind::Keyword(Keyword::Prototype), tokenizer, {
+                    access.push(AccessArm {
+                        slice: start.merge(&end),
+                        kind: AccessKind::Prototype,
+                    });
+
+                    continue;
                 });
 
-                require_parse!(value, Expr, tokenizer);
-                values.push(value);
+                require_next!(TokenKind::Identifier(ident), tokenizer);
 
-                let end = tokenizer.peek(0)?.slice;
-                if_next!(TokenKind::Symbol(Symbol::ParenClose), tokenizer, {
-                    break end;
+                access.push(AccessArm {
+                    slice: start.merge(&end),
+                    kind: AccessKind::Ident(ident),
                 });
 
-                require_next!(TokenKind::Symbol(Symbol::Comma), tokenizer);
-            };
+                continue;
+            });
 
-            return Ok(Some(Self {
-                slice: base.slice.merge(&end),
-                base: Arc::new(base.clone()),
-                kind: AccessKind::Invoke(values.into_boxed_slice().into()),
-            }));
-        });
+            if_next!(TokenKind::Symbol(Symbol::BracketOpen), tokenizer, {
+                require_parse!(expr, Expr, tokenizer);
 
-        return Ok(None);
+                end = tokenizer.peek(0)?.slice;
+                require_next!(TokenKind::Symbol(Symbol::BracketClose), tokenizer);
+
+                access.push(AccessArm {
+                    slice: start.merge(&end),
+                    kind: AccessKind::Index(Arc::new(expr)),
+                });
+                continue;
+            });
+
+            if_next!(TokenKind::Symbol(Symbol::ParenOpen), tokenizer, {
+                let mut values = vec![];
+
+                end = loop {
+                    let end = tokenizer.peek(0)?.slice;
+                    if_next!(TokenKind::Symbol(Symbol::ParenClose), tokenizer, {
+                        break end;
+                    });
+
+                    require_parse!(value, Expr, tokenizer);
+                    values.push(value);
+
+                    let end = tokenizer.peek(0)?.slice;
+                    if_next!(TokenKind::Symbol(Symbol::ParenClose), tokenizer, {
+                        break end;
+                    });
+
+                    require_next!(TokenKind::Symbol(Symbol::Comma), tokenizer);
+                };
+
+                access.push(AccessArm {
+                    slice: start.merge(&end),
+                    kind: AccessKind::Invoke(values.into_boxed_slice().into()),
+                });
+
+                continue;
+            });
+
+            if_next!(TokenKind::Symbol(Symbol::Assign), tokenizer, {
+                require_parse!(expr, Expr, tokenizer);
+
+                end = expr.slice.clone();
+
+                access.push(AccessArm {
+                    slice: start.merge(&end),
+                    kind: AccessKind::Assign(Arc::new(expr)),
+                });
+
+                break;
+            });
+
+            break;
+        }
+
+        if access.len() == 0 {
+            return Ok(None);
+        }
+
+        return Ok(Some(Self {
+            slice: base.slice.merge(&end),
+            base: Arc::new(base.clone()),
+            access: access.into_boxed_slice().into(),
+        }));
     }
 }

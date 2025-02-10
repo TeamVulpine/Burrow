@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
+    bytecode::{op_code::OpCode, BytecodeGenerationError},
     parse_tree::{expr::Expr, if_next, require_next, require_parse, try_next, ParserError},
     string::StringSlice,
     tokenizer::{
@@ -16,6 +17,31 @@ pub struct ArrayExpr {
 }
 
 impl ArrayExpr {
+    pub fn generate_bytecode(
+        &self,
+        bytecode: &mut Vec<OpCode>,
+    ) -> Result<(), BytecodeGenerationError> {
+        bytecode.push(OpCode::SetSlice {
+            slice: self.slice.clone(),
+        });
+
+        let len = self.values.len();
+        bytecode.push(OpCode::PushNewArray { initial_size: len });
+
+        for index in 0..len {
+            let value = &self.values[index];
+            bytecode.push(OpCode::PushConstInt {
+                value: index as isize,
+            });
+
+            value.generate_bytecode(bytecode)?;
+            
+            bytecode.push(OpCode::StoreIndex);
+        }
+
+        return Ok(());
+    }
+
     pub fn try_parse(tokenizer: &mut Tokenizer) -> Result<Option<Self>, ParserError> {
         let start = tokenizer.peek(0)?.slice;
 

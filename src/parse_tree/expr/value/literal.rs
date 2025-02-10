@@ -1,6 +1,8 @@
+use core::f32;
 use std::sync::Arc;
 
 use crate::{
+    bytecode::{op_code::OpCode, BytecodeGenerationError},
     parse_tree::{if_next, ParserError},
     string::StringSlice,
     tokenizer::{
@@ -28,6 +30,35 @@ pub enum LiteralExprKind {
 }
 
 impl LiteralExpr {
+    pub fn generate_bytecode(
+        &self,
+        bytecode: &mut Vec<OpCode>,
+    ) -> Result<(), BytecodeGenerationError> {
+        bytecode.push(OpCode::SetSlice {
+            slice: self.slice.clone(),
+        });
+
+        match self.kind.clone() {
+            LiteralExprKind::Number(Number::Integer(value)) => {
+                bytecode.push(OpCode::PushConstInt { value })
+            }
+            LiteralExprKind::Number(Number::Floating(value)) => {
+                bytecode.push(OpCode::PushConstFloat { value })
+            }
+            LiteralExprKind::String(value) => bytecode.push(OpCode::PushConstString { value }),
+            LiteralExprKind::Bool(value) => bytecode.push(OpCode::PushConstBool { value }),
+            LiteralExprKind::Variable(name) => bytecode.push(OpCode::PushVariable { name }),
+            LiteralExprKind::This => bytecode.push(OpCode::PushThis),
+            LiteralExprKind::Infinity => bytecode.push(OpCode::PushConstFloat {
+                value: f32::INFINITY,
+            }),
+            LiteralExprKind::NaN => bytecode.push(OpCode::PushConstFloat { value: f32::NAN }),
+            LiteralExprKind::None => bytecode.push(OpCode::PushConstNone),
+        }
+
+        return Ok(());
+    }
+
     pub fn try_parse(tokenizer: &mut Tokenizer) -> Result<Option<Self>, ParserError> {
         let slice = tokenizer.peek(0)?.slice;
 

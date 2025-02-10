@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    parse_tree::{if_next, require_next, try_next, try_parse, ParserError},
+    parse_tree::{if_next, require_next, require_parse_fn, try_next, try_parse, ParserError},
     string::StringSlice,
     tokenizer::{
         token::{Keyword, TokenKind},
@@ -42,13 +42,17 @@ pub struct FromImport {
 pub struct FromInportValue {
     pub slice: StringSlice,
     pub kind: FromImportKind,
-    pub rename: Option<Arc<str>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum FromImportKind {
-    Everything,
-    Single(Arc<str>),
+    Everything {
+        name: Arc<str>
+    },
+    Single {
+        name: Arc<str>,
+        rename: Option<Arc<str>>,
+    },
 }
 
 impl ImportDecl {
@@ -117,18 +121,13 @@ impl FromInportValue {
         let start = tokenizer.peek(0)?.slice;
 
         if_next!(TokenKind::Keyword(Keyword::Everything), tokenizer, {
-            if let Some((rename, end)) = Self::try_parse_as(tokenizer)? {
-                return Ok(Some(Self {
-                    slice: start.merge(&end),
-                    kind: FromImportKind::Everything,
-                    rename: Some(rename),
-                }));
-            }
+            require_parse_fn!((rename, end), Self::try_parse_as, tokenizer);
 
             return Ok(Some(Self {
-                slice: start,
-                kind: FromImportKind::Everything,
-                rename: None,
+                slice: start.merge(&end),
+                kind: FromImportKind::Everything {
+                    name: rename
+                },
             }));
         });
 
@@ -137,15 +136,19 @@ impl FromInportValue {
         if let Some((rename, end)) = Self::try_parse_as(tokenizer)? {
             return Ok(Some(Self {
                 slice: start.merge(&end),
-                kind: FromImportKind::Single(name),
-                rename: Some(rename),
+                kind: FromImportKind::Single {
+                    name,
+                    rename: Some(rename)
+                },
             }));
         }
 
         return Ok(Some(Self {
             slice: start,
-            kind: FromImportKind::Single(name),
-            rename: None,
+            kind: FromImportKind::Single {
+                name,
+                rename: None,
+            },
         }));
     }
 

@@ -12,7 +12,7 @@ pub mod string_pool;
 pub enum Value {
     String(StrReference),
     Reference(Reference),
-    Integer(i32),
+    Integer(isize),
     Float(f32),
     Boolean(bool),
     None,

@@ -12,5 +12,9 @@ pub mod tokenizer;
 
 fn main() {
     let mut tokenizer = Tokenizer::new(include_str!("../test.bur").into());
-    println!("{:#?}", ParseTree::try_parse(&mut tokenizer));
+    let tree = ParseTree::try_parse(&mut tokenizer).unwrap().unwrap();
+
+    let mut bytecode = vec![];
+    tree.generate_init_bytecode(&mut bytecode).unwrap();
+    println!("{:#?}", bytecode);
 }

@@ -1,7 +1,8 @@
 use crate::{
+    bytecode::{op_code::OpCode, BytecodeGenerationError},
     parse_tree::{
-        expr::Expr, if_next, if_next_or_none, if_parse_fn, peek_nth, require_parse,
-        try_parse, try_parse_fn, ParserError,
+        expr::Expr, if_next, if_next_or_none, if_parse_fn, peek_nth, require_parse, try_parse,
+        try_parse_fn, ParserError,
     },
     string::StringSlice,
     tokenizer::{
@@ -102,6 +103,36 @@ impl VariableDecl {
 }
 
 impl VariableImpl {
+    pub fn generate_bytecode(
+        &self,
+        bytecode: &mut Vec<OpCode>,
+        allow_export: bool,
+    ) -> Result<(), BytecodeGenerationError> {
+        if !allow_export && self.decl.export {
+            return Err(BytecodeGenerationError::IllegalExport(self.slice.clone()));
+        }
+
+        let name = self.decl.param.name.clone();
+
+        bytecode.push(OpCode::InitVariable { name: name.clone() });
+
+        if let Some(init) = &self.init {
+            init.generate_bytecode(bytecode)?;
+
+            bytecode.push(OpCode::StoreVariable { name: name.clone() });
+        }
+
+        if self.decl.is_const {
+            bytecode.push(OpCode::MarkVariableConst { name: name.clone() });
+        }
+
+        if self.decl.export {
+            bytecode.push(OpCode::Export { name: name.clone() });
+        }
+
+        return Ok(());
+    }
+
     pub fn try_parse(tokenizer: &mut Tokenizer) -> Result<Option<Self>, ParserError> {
         try_parse!(decl, VariableDecl, tokenizer);
 

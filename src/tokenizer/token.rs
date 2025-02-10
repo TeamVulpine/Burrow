@@ -49,7 +49,7 @@ pub enum TokenKind {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Number {
-    Integer(i32),
+    Integer(isize),
     Floating(f32),
 }
 

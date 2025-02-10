@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
+    bytecode::{op_code::OpCode, BytecodeGenerationError},
     parse_tree::{expr::Expr, ParserError},
     string::StringSlice,
     tokenizer::{
@@ -40,8 +41,45 @@ pub enum BinOpKind {
     And,
 
     Or,
+}
 
-    Assign,
+impl BinOpExpr {
+    pub fn generate_bytecode(
+        &self,
+        bytecode: &mut Vec<OpCode>,
+    ) -> Result<(), BytecodeGenerationError> {
+        self.lhs.generate_bytecode(bytecode)?;
+        self.rhs.generate_bytecode(bytecode)?;
+
+        bytecode.push(OpCode::SetSlice {
+            slice: self.slice.clone(),
+        });
+
+        match self.op {
+            BinOpKind::Add => bytecode.push(OpCode::OpAdd),
+            BinOpKind::Sub => bytecode.push(OpCode::OpSub),
+
+            BinOpKind::Mul => bytecode.push(OpCode::OpAdd),
+            BinOpKind::Div => bytecode.push(OpCode::OpAdd),
+            BinOpKind::Rem => bytecode.push(OpCode::OpAdd),
+
+            BinOpKind::Greater => bytecode.push(OpCode::OpGt),
+            BinOpKind::Less => bytecode.push(OpCode::OpLt),
+            BinOpKind::GreaterEqual => bytecode.push(OpCode::OpGe),
+            BinOpKind::LessEqual => bytecode.push(OpCode::OpLe),
+
+            BinOpKind::Equal => bytecode.push(OpCode::OpEq),
+            BinOpKind::NotEqual => bytecode.push(OpCode::OpNe),
+
+            BinOpKind::Is => bytecode.push(OpCode::ProtoEq),
+            BinOpKind::IsNot => bytecode.push(OpCode::ProtoNe),
+
+            BinOpKind::And => bytecode.push(OpCode::OpAnd),
+            BinOpKind::Or => bytecode.push(OpCode::OpOr),
+        }
+
+        return Ok(());
+    }
 }
 
 impl BinOpKind {
@@ -75,16 +113,12 @@ impl BinOpKind {
             TokenKind::Keyword(Keyword::And) => Self::And,
             TokenKind::Keyword(Keyword::Or) => Self::Or,
 
-            TokenKind::Symbol(Symbol::Assign) => Self::Assign,
-
             _ => return Ok(None),
         }));
     }
 
     pub fn binding(self) -> (usize, usize) {
         return match self {
-            Self::Assign => (2, 1),
-
             Self::Or => (3, 4),
 
             Self::And => (5, 6),

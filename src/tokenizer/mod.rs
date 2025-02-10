@@ -47,7 +47,7 @@ impl Tokenizer {
         self.parser.checkout();
 
         if let Some(whole_slice) = self.parser.while_func(char::is_numeric) {
-            let whole: i32 = whole_slice.value().parse().unwrap();
+            let whole: isize = whole_slice.value().parse().unwrap();
 
             if self.parser.is_char('.') {
                 self.parser.checkout();

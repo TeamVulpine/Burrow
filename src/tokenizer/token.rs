@@ -104,10 +104,6 @@ keywords!(Keyword {
     Break("break"),
     Continue("continue"),
 
-    Async("async"),
-    Yield("yield"),
-    Await("await"),
-
     Throw("throw"),
     Try("try"),
     Catch("catch"),

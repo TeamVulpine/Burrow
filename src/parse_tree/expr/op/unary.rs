@@ -21,7 +21,6 @@ pub enum UnaryOpKind {
     Add,
     Sub,
     Not,
-    Await,
 }
 
 impl UnaryOpKind {
@@ -32,7 +31,6 @@ impl UnaryOpKind {
             TokenKind::Symbol(Symbol::Add) => Self::Add,
             TokenKind::Symbol(Symbol::Sub) => Self::Sub,
             TokenKind::Keyword(Keyword::Not) => Self::Not,
-            TokenKind::Keyword(Keyword::Await) => Self::Await,
 
             _ => return Ok(None),
         }));

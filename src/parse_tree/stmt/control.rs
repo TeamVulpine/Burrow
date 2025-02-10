@@ -30,7 +30,6 @@ pub enum ControlKind {
     Return(Option<Expr>),
     Continue,
     Break,
-    Yield,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -120,13 +119,6 @@ impl ControlStmt {
             return Ok(Some(Self {
                 slice: start,
                 kind: ControlKind::Return(None),
-            }));
-        });
-
-        if_next!(TokenKind::Keyword(Keyword::Yield), tokenizer, {
-            return Ok(Some(Self {
-                slice: start,
-                kind: ControlKind::Yield,
             }));
         });
 

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::{
     parse_tree::{
-        if_next_or_none, if_parse_fn, is_next, next_else, require_next, require_parse, stmt::Block,
+        if_next_or_none, is_next, next_else, require_next, require_parse, stmt::Block,
         try_next, try_parse, ty::Type, ParserError,
     },
     string::StringSlice,
@@ -24,7 +24,6 @@ pub struct FunctionImpl {
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionDecl {
     pub slice: StringSlice,
-    pub is_async: bool,
     pub base: Option<Arc<str>>,
     pub name: Arc<str>,
     pub generics: Option<VariableList>,
@@ -52,28 +51,14 @@ impl FunctionImpl {
 
 impl FunctionDecl {
     pub fn try_parse(tokenizer: &mut Tokenizer) -> Result<Option<Self>, ParserError> {
-        if_parse_fn!(func, Self::try_parse_async, tokenizer, {
-            return Ok(Some(func));
-        });
-
         let start = tokenizer.peek(0)?.slice;
         try_next!(TokenKind::Keyword(Keyword::Function), tokenizer);
 
-        return Ok(Some(Self::parse_base(tokenizer, false, start)?));
-    }
-
-    pub fn try_parse_async(tokenizer: &mut Tokenizer) -> Result<Option<Self>, ParserError> {
-        let start = tokenizer.peek(0)?.slice;
-        try_next!(TokenKind::Keyword(Keyword::Async), tokenizer);
-
-        require_next!(TokenKind::Keyword(Keyword::Function), tokenizer);
-
-        return Ok(Some(Self::parse_base(tokenizer, true, start)?));
+        return Ok(Some(Self::parse_base(tokenizer, start)?));
     }
 
     fn parse_base(
         tokenizer: &mut Tokenizer,
-        is_async: bool,
         start: StringSlice,
     ) -> Result<Self, ParserError> {
         require_next!(TokenKind::Identifier(mut name), tokenizer);
@@ -121,7 +106,6 @@ impl FunctionDecl {
 
         return Ok(Self {
             slice: start.merge(&end),
-            is_async,
             base,
             name,
             generics,

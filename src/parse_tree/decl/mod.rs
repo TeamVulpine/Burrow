@@ -31,14 +31,14 @@ pub enum IdeDeclKind {
     Function(FunctionDecl),
     Class(ClassDecl),
     Variable(VariableDecl),
-    Module(IdeModule)
+    Module(IdeModule),
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct IdeModule {
     pub slice: StringSlice,
     pub name: Arc<str>,
-    pub values: Arc<[IdeDecl]>
+    pub values: Arc<[IdeDecl]>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -109,7 +109,7 @@ impl IdeDecl {
                 kind: IdeDeclKind::Function(decl),
             }));
         });
-        
+
         return Ok(None);
     }
 }
@@ -136,7 +136,7 @@ impl IdeModule {
         return Ok(Some(Self {
             slice: start.merge(&end),
             name,
-            values: decls.into_boxed_slice().into()
+            values: decls.into_boxed_slice().into(),
         }));
     }
 }

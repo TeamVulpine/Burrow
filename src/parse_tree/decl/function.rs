@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::{
     parse_tree::{
-        if_next_or_none, is_next, next_else, require_next, require_parse, stmt::Block,
+        if_next_or_none, is_next, next_else, peek_nth, require_next, require_parse, stmt::Block,
         try_next, try_parse, ty::Type, ParserError,
     },
     string::StringSlice,
@@ -17,6 +17,7 @@ use super::VariableList;
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionImpl {
     pub slice: StringSlice,
+    pub export: bool,
     pub decl: FunctionDecl,
     pub block: Block,
 }
@@ -34,7 +35,12 @@ pub struct FunctionDecl {
 
 impl FunctionImpl {
     pub fn try_parse(tokenizer: &mut Tokenizer) -> Result<Option<Self>, ParserError> {
-        try_parse!(decl, FunctionDecl, tokenizer);
+        let (decl, export) = if let Some(decl) = FunctionDecl::try_parse_with_export(tokenizer)? {
+            (decl, true)
+        } else {
+            try_parse!(decl, FunctionDecl, tokenizer);
+            (decl, false)
+        };
 
         require_parse!(block, Block, tokenizer);
 
@@ -43,6 +49,7 @@ impl FunctionImpl {
 
         return Ok(Some(Self {
             slice: decl.slice.merge(&end),
+            export,
             decl,
             block,
         }));
@@ -50,6 +57,18 @@ impl FunctionImpl {
 }
 
 impl FunctionDecl {
+    pub fn try_parse_with_export(tokenizer: &mut Tokenizer) -> Result<Option<Self>, ParserError> {
+        let start = tokenizer.peek(0)?.slice;
+
+        peek_nth!(TokenKind::Keyword(Keyword::Export), 0, tokenizer);
+        peek_nth!(TokenKind::Keyword(Keyword::Function), 1, tokenizer);
+
+        tokenizer.next()?;
+        tokenizer.next()?;
+
+        return Ok(Some(Self::parse_base(tokenizer, start)?));
+    }
+
     pub fn try_parse(tokenizer: &mut Tokenizer) -> Result<Option<Self>, ParserError> {
         let start = tokenizer.peek(0)?.slice;
         try_next!(TokenKind::Keyword(Keyword::Function), tokenizer);
@@ -57,10 +76,7 @@ impl FunctionDecl {
         return Ok(Some(Self::parse_base(tokenizer, start)?));
     }
 
-    fn parse_base(
-        tokenizer: &mut Tokenizer,
-        start: StringSlice,
-    ) -> Result<Self, ParserError> {
+    fn parse_base(tokenizer: &mut Tokenizer, start: StringSlice) -> Result<Self, ParserError> {
         require_next!(TokenKind::Identifier(mut name), tokenizer);
 
         let base: Option<Arc<str>> = if_next_or_none!(TokenKind::Symbol(Symbol::Dot), tokenizer, {

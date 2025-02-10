@@ -30,7 +30,7 @@ pub enum OpCode {
     PushFunction {
         index: usize,
         /// Set this to true if the function is to be used as a closure
-        use_current_context: bool
+        use_current_context: bool,
     },
     PushNewObject,
     PushNewArray,

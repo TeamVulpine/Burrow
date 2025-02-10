@@ -1,6 +1,7 @@
 use crate::{
     parse_tree::{
-        expr::Expr, if_next_or_none, if_parse_fn, require_parse, try_next, try_parse, ParserError,
+        expr::Expr, if_next, if_next_or_none, if_parse_fn, peek_nth, require_parse,
+        try_parse, try_parse_fn, ParserError,
     },
     string::StringSlice,
     tokenizer::{
@@ -14,6 +15,7 @@ use super::VariableName;
 #[derive(Debug, Clone, PartialEq)]
 pub struct VariableDecl {
     pub slice: StringSlice,
+    pub export: bool,
     pub is_const: bool,
     pub param: VariableName,
 }
@@ -38,9 +40,37 @@ impl VariableDecl {
         return Ok(None);
     }
 
+    fn parse_keyword_let(tokenizer: &mut Tokenizer) -> Result<Option<bool>, ParserError> {
+        if_next!(TokenKind::Keyword(Keyword::Let), tokenizer, {
+            return Ok(Some(false));
+        });
+
+        peek_nth!(TokenKind::Keyword(Keyword::Export), 0, tokenizer);
+        peek_nth!(TokenKind::Keyword(Keyword::Let), 1, tokenizer);
+
+        tokenizer.next()?;
+        tokenizer.next()?;
+
+        return Ok(Some(true));
+    }
+
+    fn parse_keyword_const(tokenizer: &mut Tokenizer) -> Result<Option<bool>, ParserError> {
+        if_next!(TokenKind::Keyword(Keyword::Const), tokenizer, {
+            return Ok(Some(false));
+        });
+
+        peek_nth!(TokenKind::Keyword(Keyword::Export), 0, tokenizer);
+        peek_nth!(TokenKind::Keyword(Keyword::Const), 1, tokenizer);
+
+        tokenizer.next()?;
+        tokenizer.next()?;
+
+        return Ok(Some(true));
+    }
+
     pub fn try_parse_let(tokenizer: &mut Tokenizer) -> Result<Option<Self>, ParserError> {
         let start = tokenizer.peek(0)?.slice;
-        try_next!(TokenKind::Keyword(Keyword::Let), tokenizer);
+        try_parse_fn!(export, Self::parse_keyword_let, tokenizer);
 
         require_parse!(param, VariableName, tokenizer);
 
@@ -48,6 +78,7 @@ impl VariableDecl {
 
         return Ok(Some(Self {
             slice: start.merge(&end),
+            export,
             is_const: false,
             param,
         }));
@@ -55,7 +86,7 @@ impl VariableDecl {
 
     pub fn try_parse_const(tokenizer: &mut Tokenizer) -> Result<Option<Self>, ParserError> {
         let start = tokenizer.peek(0)?.slice;
-        try_next!(TokenKind::Keyword(Keyword::Const), tokenizer);
+        try_parse_fn!(export, Self::parse_keyword_const, tokenizer);
 
         require_parse!(param, VariableName, tokenizer);
 
@@ -63,6 +94,7 @@ impl VariableDecl {
 
         return Ok(Some(Self {
             slice: start.merge(&end),
+            export,
             is_const: false,
             param,
         }));

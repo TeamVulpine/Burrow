@@ -10,7 +10,6 @@ pub struct CompiledModule {
 }
 
 pub struct Function {
-    pub param_count: usize,
-    pub instance_func: bool,
+    pub params: Arc<[Arc<str>]>,
     pub body: Arc<OpCode>,
 }

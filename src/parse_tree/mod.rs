@@ -81,7 +81,7 @@ pub macro peek_not_nth($p: pat, $n: expr, $tokenizer: expr) {
 }
 
 pub macro parse_else_fn($name: pat, $f: expr, $tokenizer: expr, $el: tt) {
-    let Some($name) = $f($tokenizer)? else { $el };
+    let Some($name) = $f($tokenizer)? else $el;
 }
 
 pub macro parse_else($name: pat, $ty: ty, $tokenizer: expr, $el: tt) {

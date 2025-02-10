@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use crate::{
     parse_tree::{
-        expr::Expr, if_next, if_parse, is_next, require_next, require_parse, require_parse_fn,
-        try_next, try_parse, ParserError,
+        expr::Expr, if_next, if_parse, is_next, peek_nth, require_next, require_parse,
+        require_parse_fn, try_next, try_parse, ParserError,
     },
     string::StringSlice,
     tokenizer::{
@@ -28,6 +28,7 @@ pub enum ControlKind {
     Try(TryStmt),
     Throw(Expr),
     Return(Option<Expr>),
+    Export(Arc<str>),
     Continue,
     Break,
 }
@@ -136,7 +137,16 @@ impl ControlStmt {
             }));
         });
 
-        return Ok(None);
+        peek_nth!(TokenKind::Keyword(Keyword::Export), 0, tokenizer);
+        peek_nth!(TokenKind::Identifier(ident), 1, tokenizer);
+
+        tokenizer.next()?;
+        let end = tokenizer.next()?.slice;
+
+        return Ok(Some(Self {
+            slice: start.merge(&end),
+            kind: ControlKind::Export(ident),
+        }));
     }
 }
 

@@ -23,6 +23,9 @@ pub trait NativeValue {
     fn mark_children(&self, marker: &mut MarkChildren);
 
     #[allow(unused_variables)]
+    fn cleanup(&self) {}
+
+    #[allow(unused_variables)]
     fn has_invoker(&self, runtime: Arc<Runtime>) -> bool {
         return false;
     }

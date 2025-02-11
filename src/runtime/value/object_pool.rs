@@ -1,7 +1,7 @@
 use std::{
     collections::HashSet,
     error::Error,
-    sync::{Arc, Mutex, RwLock},
+    sync::{atomic::{AtomicUsize, Ordering}, Arc, Mutex, RwLock},
 };
 
 use indexmap::IndexMap;
@@ -12,13 +12,13 @@ use super::{string_pool::StrReference, NativeValue, Value};
 /// Objects use a cycle detection scheme to properly dispose of values that have cycles
 pub struct ObjectPool {
     finalize: Mutex<HashSet<usize>>,
-    values: RwLock<Vec<RwLock<Option<ObjectPoolValue>>>>,
+    values: RwLock<Vec<ObjectPoolValue>>,
     free_indices: Mutex<Vec<usize>>,
 }
 
 pub struct ObjectPoolValue {
-    value: Arc<Object>,
-    ref_count: usize,
+    value: RwLock<Option<Arc<Object>>>,
+    ref_count: AtomicUsize,
 }
 
 pub struct ObjectReference {
@@ -39,7 +39,7 @@ pub enum Property {
 
 pub struct MarkChildren<'a> {
     pool: Arc<ObjectPool>,
-    values: &'a Vec<RwLock<Option<ObjectPoolValue>>>,
+    values: &'a Vec<ObjectPoolValue>,
     base_index: usize,
     count: usize,
     visited: HashSet<usize>,
@@ -58,18 +58,17 @@ impl ObjectPool {
         self: &'a Arc<Self>,
         f: TFn,
     ) -> Result<ObjectReference, Box<dyn Error + 'a>> {
-        let mut values = self.values.write()?;
-
         {
             let mut indices = self.free_indices.lock()?;
 
+            let values = self.values.read().unwrap();
+
             if let Some(index) = indices.pop() {
-                let lock = values.get(index).unwrap();
-                let mut value = lock.write().unwrap();
-                *value = Some(ObjectPoolValue {
-                    value: Arc::new(f()),
-                    ref_count: 1,
-                });
+                let value = values.get(index).unwrap();
+                
+                value.ref_count.store(1, Ordering::Relaxed);
+                let mut value = value.value.write().unwrap();
+                *value = Some(Arc::new(f()));
 
                 return Ok(ObjectReference {
                     pool: self.clone(),
@@ -78,12 +77,14 @@ impl ObjectPool {
             }
         }
 
+        let mut values = self.values.write()?;
+
         let index = values.len();
 
-        values.push(RwLock::new(Some(ObjectPoolValue {
-            value: Arc::new(f()),
-            ref_count: 1,
-        })));
+        values.push(ObjectPoolValue {
+            value: RwLock::new(Some(Arc::new(f()))),
+            ref_count: AtomicUsize::new(1),
+        });
 
         return Ok(ObjectReference {
             pool: self.clone(),
@@ -105,15 +106,11 @@ impl ObjectPool {
     ) -> Result<Option<Arc<Object>>, Box<dyn Error + 'a>> {
         let values = self.values.read()?;
 
-        let Some(lock) = values.get(index) else {
+        let Some(value) = values.get(index) else {
             return Ok(None);
         };
 
-        let Some(value) = &*lock.read().unwrap() else {
-            return Ok(None);
-        };
-
-        return Ok(Some(value.value.clone()));
+        return Ok(value.value.read().unwrap().clone());
     }
 
     fn clone_reference<'a>(
@@ -122,15 +119,11 @@ impl ObjectPool {
     ) -> Result<ObjectReference, Box<dyn Error + 'a>> {
         let values = self.values.read()?;
 
-        let Some(lock) = values.get(index) else {
+        let Some(value) = values.get(index) else {
             panic!("h");
         };
 
-        let Some(value) = &mut *lock.write().unwrap() else {
-            panic!("h");
-        };
-
-        value.ref_count += 1;
+        value.ref_count.fetch_add(1, Ordering::Relaxed);
 
         return Ok(ObjectReference {
             pool: self.clone(),
@@ -149,24 +142,18 @@ impl ObjectPool {
 
         let values = self.values.read()?;
 
-        let Some(lock) = values.get(index) else {
+        let Some(value) = values.get(index) else {
             return Ok(());
         };
 
-        if lock.read().unwrap().is_none() {
-            return Ok(());
-        }
-
-        let Some(value) = &mut *lock.write().unwrap() else {
-            return Ok(());
-        };
-
-        value.ref_count -= 1;
+        value.ref_count.fetch_sub(1, Ordering::Relaxed);
 
         return Ok(());
     }
 
-    pub fn collect_garbage<'a>(self: &'a Arc<Self>) -> Result<(), Box<dyn Error + 'a>> {
+    pub fn collect_garbage<'a>(
+        self: &'a Arc<Self>,
+    ) -> Result<(), Box<dyn Error + 'a>> {
         loop {
             let mut indices_to_delete = vec![];
             {
@@ -176,10 +163,6 @@ impl ObjectPool {
                 for base_index in 0..values.len() {
                     let value = &values[base_index];
 
-                    let Some(value) = &*value.read().unwrap() else {
-                        break;
-                    };
-
                     let mut marker = MarkChildren::new(self.clone(), &values, base_index);
 
                     println!("Counting cycles for reference {}", base_index);
@@ -188,7 +171,7 @@ impl ObjectPool {
 
                     let cycle_count = marker.count;
 
-                    let ref_count = value.ref_count;
+                    let ref_count = value.ref_count.load(Ordering::Relaxed);
                     if ref_count <= cycle_count {
                         println!(
                             "Cycle count ({}) >= reference count ({}), deleting",
@@ -204,7 +187,7 @@ impl ObjectPool {
             {
                 let values = self.values.read()?;
                 for index in &indices_to_delete {
-                    *values[*index].write().unwrap() = None;
+                    *values[*index].value.write().unwrap() = None;
                 }
             }
 
@@ -240,10 +223,18 @@ impl Clone for ObjectReference {
     }
 }
 
+impl Drop for Object {
+    fn drop(&mut self) {
+        if let Some(native_value) = self.native_value.read().unwrap().clone() {
+            native_value.cleanup();
+        }
+    }
+}
+
 impl<'a> MarkChildren<'a> {
     fn new(
         pool: Arc<ObjectPool>,
-        values: &'a Vec<RwLock<Option<ObjectPoolValue>>>,
+        values: &'a Vec<ObjectPoolValue>,
         base_index: usize,
     ) -> Self {
         return Self {
@@ -282,11 +273,9 @@ impl<'a> MarkChildren<'a> {
 
         self.visited.insert(index);
 
-        let lock = &self.values[index];
+        let value = &self.values[index];
 
-        if let Some(value) = &*lock.read().unwrap() {
-            let obj = value.value.clone();
-
+        if let Some(obj) = &*value.value.read().unwrap() {
             {
                 let values = obj.values.read().unwrap();
                 for child in values.iter() {

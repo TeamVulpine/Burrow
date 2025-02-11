@@ -10,45 +10,42 @@ use super::{string_pool::StrReference, NativeValue, Value};
 
 /// A pool for reference counted objects
 /// Objects use a cycle detection scheme to properly dispose of values that have cycles
-pub struct ReferencePool {
+pub struct ObjectPool {
     finalize: Mutex<HashSet<usize>>,
-    values: RwLock<Vec<RwLock<Option<ReferencePoolValue>>>>,
+    values: RwLock<Vec<RwLock<Option<ObjectPoolValue>>>>,
     free_indices: Mutex<Vec<usize>>,
 }
 
-pub struct ReferencePoolValue {
+pub struct ObjectPoolValue {
     value: Arc<Object>,
     ref_count: usize,
 }
 
-pub struct Reference {
-    pool: Arc<ReferencePool>,
+pub struct ObjectReference {
+    pool: Arc<ObjectPool>,
     index: usize,
 }
 
 pub struct Object {
-    pub values: RwLock<IndexMap<StrReference, RwLock<Value>>>,
+    pub values: RwLock<IndexMap<StrReference, RwLock<Property>>>,
     pub prototype: RwLock<Value>,
     pub native_value: RwLock<Option<Arc<dyn NativeValue>>>,
 }
 
-pub enum ObjectProperty {
+pub enum Property {
     Value(Value),
-    GetSet {
-        get: Option<Reference>,
-        set: Option<Reference>,
-    },
+    GetSet { get: Value, set: Value },
 }
 
 pub struct MarkChildren<'a> {
-    pool: Arc<ReferencePool>,
-    values: &'a Vec<RwLock<Option<ReferencePoolValue>>>,
+    pool: Arc<ObjectPool>,
+    values: &'a Vec<RwLock<Option<ObjectPoolValue>>>,
     base_index: usize,
     count: usize,
     visited: HashSet<usize>,
 }
 
-impl ReferencePool {
+impl ObjectPool {
     pub fn new() -> Arc<Self> {
         return Arc::new(Self {
             finalize: Mutex::new(HashSet::new()),
@@ -60,7 +57,7 @@ impl ReferencePool {
     fn emplace<'a, TFn: FnOnce() -> Object>(
         self: &'a Arc<Self>,
         f: TFn,
-    ) -> Result<Reference, Box<dyn Error + 'a>> {
+    ) -> Result<ObjectReference, Box<dyn Error + 'a>> {
         let mut values = self.values.write()?;
 
         {
@@ -69,12 +66,12 @@ impl ReferencePool {
             if let Some(index) = indices.pop() {
                 let lock = values.get(index).unwrap();
                 let mut value = lock.write().unwrap();
-                *value = Some(ReferencePoolValue {
+                *value = Some(ObjectPoolValue {
                     value: Arc::new(f()),
                     ref_count: 1,
                 });
 
-                return Ok(Reference {
+                return Ok(ObjectReference {
                     pool: self.clone(),
                     index,
                 });
@@ -83,18 +80,18 @@ impl ReferencePool {
 
         let index = values.len();
 
-        values.push(RwLock::new(Some(ReferencePoolValue {
+        values.push(RwLock::new(Some(ObjectPoolValue {
             value: Arc::new(f()),
             ref_count: 1,
         })));
 
-        return Ok(Reference {
+        return Ok(ObjectReference {
             pool: self.clone(),
             index,
         });
     }
 
-    pub fn new_object<'a>(self: &'a Arc<Self>) -> Result<Reference, Box<dyn Error + 'a>> {
+    pub fn new_object<'a>(self: &'a Arc<Self>) -> Result<ObjectReference, Box<dyn Error + 'a>> {
         return self.emplace(|| Object {
             values: RwLock::new(IndexMap::new()),
             prototype: RwLock::new(Value::None),
@@ -122,7 +119,7 @@ impl ReferencePool {
     fn clone_reference<'a>(
         self: &'a Arc<Self>,
         index: usize,
-    ) -> Result<Reference, Box<dyn Error + 'a>> {
+    ) -> Result<ObjectReference, Box<dyn Error + 'a>> {
         let values = self.values.read()?;
 
         let Some(lock) = values.get(index) else {
@@ -135,7 +132,7 @@ impl ReferencePool {
 
         value.ref_count += 1;
 
-        return Ok(Reference {
+        return Ok(ObjectReference {
             pool: self.clone(),
             index,
         });
@@ -225,19 +222,19 @@ impl ReferencePool {
     }
 }
 
-impl Reference {
+impl ObjectReference {
     pub fn get(&self) -> Arc<Object> {
         return self.pool.get(self.index).unwrap().unwrap();
     }
 }
 
-impl Drop for Reference {
+impl Drop for ObjectReference {
     fn drop(&mut self) {
         self.pool.drop_reference(self.index).unwrap();
     }
 }
 
-impl Clone for Reference {
+impl Clone for ObjectReference {
     fn clone(&self) -> Self {
         return self.pool.clone_reference(self.index).unwrap();
     }
@@ -245,8 +242,8 @@ impl Clone for Reference {
 
 impl<'a> MarkChildren<'a> {
     fn new(
-        pool: Arc<ReferencePool>,
-        values: &'a Vec<RwLock<Option<ReferencePoolValue>>>,
+        pool: Arc<ObjectPool>,
+        values: &'a Vec<RwLock<Option<ObjectPoolValue>>>,
         base_index: usize,
     ) -> Self {
         return Self {
@@ -259,24 +256,12 @@ impl<'a> MarkChildren<'a> {
     }
 
     pub fn mark_value(&mut self, child: &Value) {
-        if let Value::Reference(reference) = child {
-            if !Arc::ptr_eq(&self.pool, &reference.pool) {
-                panic!("Values from different runtimes cannot intermingle.");
-            }
-
-            if self.visited.contains(&reference.index) {
-                println!("Found cycle of reference {}", reference.index);
-                if reference.index == self.base_index {
-                    self.count += 1;
-                }
-                return;
-            }
-
-            self.mark_index(reference.index);
+        if let Value::Object(reference) = child {
+            self.mark_reference(reference);
         }
     }
 
-    pub fn mark_reference(&mut self, reference: &Reference) {
+    pub fn mark_reference(&mut self, reference: &ObjectReference) {
         if !Arc::ptr_eq(&self.pool, &reference.pool) {
             panic!("Values from different runtimes cannot intermingle.");
         }
@@ -305,9 +290,16 @@ impl<'a> MarkChildren<'a> {
             {
                 let values = obj.values.read().unwrap();
                 for child in values.iter() {
-                    let field = child.1.read().unwrap();
+                    let property = child.1.read().unwrap();
 
-                    self.mark_value(&field);
+                    match (&property) as &Property {
+                        Property::Value(value) => self.mark_value(value),
+
+                        Property::GetSet { get, set } => {
+                            self.mark_value(get);
+                            self.mark_value(set);
+                        }
+                    }
                 }
             }
 

@@ -1,17 +1,17 @@
 use std::sync::{Arc, RwLock};
 
-use reference_pool::{MarkChildren, Reference};
+use object_pool::{MarkChildren, ObjectReference};
 use string_pool::StrReference;
 
 use super::Runtime;
 
-pub mod reference_pool;
+pub mod object_pool;
 pub mod string_pool;
 
 #[derive(Clone)]
 pub enum Value {
     String(StrReference),
-    Reference(Reference),
+    Object(ObjectReference),
     Integer(isize),
     Float(f32),
     Boolean(bool),
@@ -36,29 +36,6 @@ pub trait NativeValue {
     ) -> Result<Value, Value> {
         return Ok(Value::None);
     }
-
-    /// Return Ok(None) to signify that there is no value there.
-    #[allow(unused_variables)]
-    fn get_index(
-        &self,
-        runtime: Arc<Runtime>,
-        this_obj: &Value,
-        index: &Value,
-    ) -> Result<Option<Value>, Value> {
-        return Ok(None);
-    }
-
-    /// Return Ok(None) to signify that there is no value there.
-    #[allow(unused_variables)]
-    fn set_index(
-        &self,
-        runtime: Arc<Runtime>,
-        this_obj: &Value,
-        index: &Value,
-        value: &Value,
-    ) -> Result<Option<Value>, Value> {
-        return Ok(None);
-    }
 }
 
 pub struct Array {
@@ -72,61 +49,5 @@ impl NativeValue for Array {
             let value = value.read().unwrap();
             marker.mark_value(&value);
         }
-    }
-
-    #[allow(unused_variables)]
-    fn get_index(
-        &self,
-        runtime: Arc<Runtime>,
-        this_obj: &Value,
-        index: &Value,
-    ) -> Result<Option<Value>, Value> {
-        let index = if let Value::Integer(int) = index {
-            *int
-        } else if let Value::Float(float) = index {
-            (*float) as isize
-        } else {
-            return Ok(None);
-        };
-
-        {
-            let values = self.values.read().unwrap();
-
-            if index as usize >= values.len() {
-                return Ok(None);
-            }
-    
-            return Ok(Some(values[index as usize].read().unwrap().clone()));
-        }
-    }
-
-    #[allow(unused_variables)]
-    fn set_index(
-            &self,
-            runtime: Arc<Runtime>,
-            this_obj: &Value,
-            index: &Value,
-            value: &Value,
-    ) -> Result<Option<Value>, Value> {
-        let index = if let Value::Integer(int) = index {
-            *int
-        } else if let Value::Float(float) = index {
-            (*float) as isize
-        } else {
-            return Ok(None);
-        };
-
-        {
-            let mut values = self.values.write().unwrap();
-            while index as usize >= values.len() {
-                values.push(RwLock::new(Value::None));
-            }
-
-            let mut out = values[index as usize].write().unwrap();
-            let out: &mut Value = &mut out;
-            *out = value.clone();
-        }
-
-        return Ok(Some(value.clone()));
     }
 }

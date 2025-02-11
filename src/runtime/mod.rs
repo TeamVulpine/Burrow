@@ -4,7 +4,7 @@ use std::{
 };
 
 use value::{
-    reference_pool::ReferencePool,
+    object_pool::ObjectPool,
     string_pool::{StrReference, StringPool},
     Value,
 };
@@ -15,7 +15,7 @@ pub mod value;
 
 pub struct Runtime {
     pub string_pool: Arc<StringPool>,
-    pub reference_pool: Arc<ReferencePool>,
+    pub reference_pool: Arc<ObjectPool>,
     pub module_cache: RwLock<HashMap<StrReference, Arc<Module>>>,
 }
 
@@ -32,7 +32,7 @@ pub struct BytecodeModule {
 impl Runtime {
     pub fn new() -> Self {
         let string_pool = StringPool::new();
-        let reference_pool = ReferencePool::new();
+        let reference_pool = ObjectPool::new();
 
         return Self {
             string_pool,

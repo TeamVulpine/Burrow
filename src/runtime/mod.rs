@@ -15,7 +15,7 @@ pub mod value;
 
 pub struct Runtime {
     pub string_pool: Arc<StringPool>,
-    pub reference_pool: Arc<ObjectPool>,
+    pub object_pool: Arc<ObjectPool>,
     pub module_cache: RwLock<HashMap<StrReference, Arc<Module>>>,
 }
 
@@ -36,7 +36,7 @@ impl Runtime {
 
         return Self {
             string_pool,
-            reference_pool,
+            object_pool: reference_pool,
             module_cache: RwLock::new(HashMap::new()),
         };
     }

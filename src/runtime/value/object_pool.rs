@@ -1,10 +1,15 @@
 use std::{
     collections::HashSet,
     error::Error,
-    sync::{atomic::{AtomicUsize, Ordering}, Arc, Mutex, RwLock},
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc, Mutex, RwLock,
+    },
 };
 
 use indexmap::IndexMap;
+
+use crate::runtime;
 
 use super::{string_pool::StrReference, NativeValue, Value};
 
@@ -28,7 +33,7 @@ pub struct ObjectReference {
 
 pub struct Object {
     pub values: RwLock<IndexMap<StrReference, RwLock<Property>>>,
-    pub prototype: RwLock<Value>,
+    pub prototype: RwLock<Option<ObjectReference>>,
     pub native_value: RwLock<Option<Arc<dyn NativeValue>>>,
 }
 
@@ -65,7 +70,7 @@ impl ObjectPool {
 
             if let Some(index) = indices.pop() {
                 let value = values.get(index).unwrap();
-                
+
                 value.ref_count.store(1, Ordering::Relaxed);
                 let mut value = value.value.write().unwrap();
                 *value = Some(Arc::new(f()));
@@ -95,8 +100,32 @@ impl ObjectPool {
     pub fn new_object<'a>(self: &'a Arc<Self>) -> Result<ObjectReference, Box<dyn Error + 'a>> {
         return self.emplace(|| Object {
             values: RwLock::new(IndexMap::new()),
-            prototype: RwLock::new(Value::None),
+            prototype: RwLock::new(None),
             native_value: RwLock::new(None),
+        });
+    }
+
+    pub fn new_object_proto<'a>(self: &'a Arc<Self>, prototype: ObjectReference) -> Result<ObjectReference, Box<dyn Error + 'a>> {
+        return self.emplace(|| Object {
+            values: RwLock::new(IndexMap::new()),
+            prototype: RwLock::new(Some(prototype)),
+            native_value: RwLock::new(None),
+        });
+    }
+
+    pub fn new_native_object<'a>(self: &'a Arc<Self>, value: Arc<dyn NativeValue>) -> Result<ObjectReference, Box<dyn Error + 'a>> {
+        return self.emplace(|| Object {
+            values: RwLock::new(IndexMap::new()),
+            prototype: RwLock::new(None),
+            native_value: RwLock::new(Some(value)),
+        });
+    }
+
+    pub fn new_native_object_prototype<'a>(self: &'a Arc<Self>, value: Arc<dyn NativeValue>, prototype: ObjectReference) -> Result<ObjectReference, Box<dyn Error + 'a>> {
+        return self.emplace(|| Object {
+            values: RwLock::new(IndexMap::new()),
+            prototype: RwLock::new(Some(prototype)),
+            native_value: RwLock::new(Some(value)),
         });
     }
 
@@ -151,9 +180,7 @@ impl ObjectPool {
         return Ok(());
     }
 
-    pub fn collect_garbage<'a>(
-        self: &'a Arc<Self>,
-    ) -> Result<(), Box<dyn Error + 'a>> {
+    pub fn collect_garbage<'a>(self: &'a Arc<Self>) -> Result<(), Box<dyn Error + 'a>> {
         loop {
             let mut indices_to_delete = vec![];
             {
@@ -209,6 +236,118 @@ impl ObjectReference {
     pub fn get(&self) -> Arc<Object> {
         return self.pool.get(self.index).unwrap().unwrap();
     }
+
+    pub fn get_property(&self, runtime: Arc<runtime::Runtime>, this_obj: &Value, property: &Value) -> Result<Value, Value> {
+        let obj = self.get();
+
+        if let Value::String(str) = property {
+            let values = obj.values.read().unwrap();
+            if values.contains_key(str) {
+                let prop = values.get(str).unwrap();
+                let prop = prop.read().unwrap();
+
+                match (&prop) as &Property {
+                    Property::Value(val) => {
+                        let Value::Uninitialized = val else {
+                            return Ok(val.clone());
+                        };
+                    },
+                    Property::GetSet { get, set: _ } => {
+                        let Value::Uninitialized = get else {
+                            return get.invoke(runtime, this_obj, &[property.clone()]);
+                        };
+                    }
+                }
+            }
+        }
+
+        {
+            let values = obj.values.read().unwrap();
+
+            let get_index = runtime.string_pool.acquire("__get_index__".into()).unwrap();
+
+            if values.contains_key(&get_index) {
+                let prop = values.get(&get_index).unwrap();
+                let prop = prop.read().unwrap();
+
+                if let Property::Value(value) = (&prop) as &Property {
+                    let result = value.invoke(runtime.clone(), this_obj, &[property.clone()])?;
+
+                    let Value::Uninitialized = result else {
+                        return Ok(result);
+                    };
+                }
+            }
+        }
+        
+        {
+            let proto = obj.prototype.read().unwrap();
+            
+            if let Some(proto) = (&proto) as &Option<ObjectReference> {
+                return proto.get_property(runtime, this_obj, property);
+            }
+        }
+
+        return Ok(Value::Uninitialized);
+    }
+
+    fn set_index(&self, runtime: Arc<runtime::Runtime>, this_obj: &Value, property: &Value, value: &Value) -> Result<Value, Value>{
+        let obj = self.get();
+
+        {
+            let values = obj.values.read().unwrap();
+
+            let get_index = runtime.string_pool.acquire("__set_index__".into()).unwrap();
+
+            if values.contains_key(&get_index) {
+                let prop = values.get(&get_index).unwrap();
+                let prop = prop.read().unwrap();
+
+                if let Property::Value(value) = (&prop) as &Property {
+                    let result = value.invoke(runtime.clone(), this_obj, &[property.clone(), value.clone()])?;
+
+                    let Value::Uninitialized = result else {
+                        return Ok(result);
+                    };
+                }
+            }
+        }
+        
+        {
+            let proto = obj.prototype.read().unwrap();
+            
+            if let Some(proto) = (&proto) as &Option<ObjectReference> {
+                return proto.set_index(runtime, this_obj, property, value);
+            }
+        }
+
+        return Ok(Value::Uninitialized);
+    }
+
+    pub fn set_property(&self, runtime: Arc<runtime::Runtime>, this_obj: &Value, property: &Value, value: &Value) -> Result<Value, Value> {
+        let obj = self.get();
+
+        if let Value::String(str) = property {
+            let values = obj.values.read().unwrap();
+            if values.contains_key(str) {
+                let prop = values.get(str).unwrap();
+                let mut prop = prop.write().unwrap();
+
+                match (&mut prop) as &mut Property {
+                    Property::Value(val) => {
+                        *val = value.clone();
+                    },
+                    Property::GetSet { get: _, set } => {
+                        let Value::Uninitialized = set else {
+                            return set.invoke(runtime, this_obj, &[property.clone(), value.clone()]);
+                        };
+                    }
+                }
+            }
+        }
+
+        return self.set_index(runtime, this_obj, property, value);
+    }
 }
 
 impl Drop for ObjectReference {
@@ -232,11 +371,7 @@ impl Drop for Object {
 }
 
 impl<'a> MarkChildren<'a> {
-    fn new(
-        pool: Arc<ObjectPool>,
-        values: &'a Vec<ObjectPoolValue>,
-        base_index: usize,
-    ) -> Self {
+    fn new(pool: Arc<ObjectPool>, values: &'a Vec<ObjectPoolValue>, base_index: usize) -> Self {
         return Self {
             pool,
             values,
@@ -295,7 +430,9 @@ impl<'a> MarkChildren<'a> {
             {
                 let proto = obj.prototype.read().unwrap();
 
-                self.mark_value(&proto);
+                if let Some(proto) = (&proto) as &Option<ObjectReference> {
+                    self.mark_reference(proto);
+                }
             }
 
             {

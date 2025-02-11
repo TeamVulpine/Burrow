@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use crate::{
     parse_tree::{
-        if_next_or_none, is_next, next_else, peek_nth, require_next, require_parse, stmt::Block,
-        try_next, try_parse, ty::Type, ParserError,
+        if_next_or_none, if_parse_or_none, is_next, next_else, peek_nth, require_next,
+        require_parse, stmt::Block, try_next, try_parse, ty::Type, ParserError,
     },
     string::StringSlice,
     tokenizer::{
@@ -29,6 +29,7 @@ pub struct FunctionDecl {
     pub name: Arc<str>,
     pub generics: Option<VariableList>,
     pub this: bool,
+    pub this_ty: Option<Type>,
     pub params: Option<VariableList>,
     pub ty: Option<Type>,
 }
@@ -98,6 +99,12 @@ impl FunctionDecl {
 
         let this = is_next!(TokenKind::Keyword(Keyword::This), tokenizer);
 
+        let this_ty: Option<Type> = if this {
+            if_parse_or_none!(this_ty, Type, tokenizer, { Some(this_ty) })
+        } else {
+            None
+        };
+
         let mut params = None;
 
         let mut end = tokenizer.peek(0)?.slice;
@@ -126,6 +133,7 @@ impl FunctionDecl {
             name,
             generics,
             this,
+            this_ty,
             params,
             ty,
         });

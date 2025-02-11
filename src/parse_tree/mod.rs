@@ -115,8 +115,12 @@ pub macro if_parse($name: pat, $ty: ty, $tokenizer: expr, $block: tt) {
     if_parse_fn!($name, <$ty>::try_parse, $tokenizer, $block);
 }
 
+pub macro if_parse_or_none_fn($name: pat, $f: expr, $tokenizer: expr, $block: tt) {
+    if let Some($name) = $f($tokenizer)? $block else { None }
+}
+
 pub macro if_parse_or_none($name: pat, $ty: ty, $tokenizer: expr, $block: tt) {
-    if_parse_or_none_fn!($name, <$ty>::try_parse, $tokenizer, $block);
+    if_parse_or_none_fn!($name, <$ty>::try_parse, $tokenizer, $block)
 }
 
 #[derive(Debug, Clone, PartialEq)]

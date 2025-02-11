@@ -47,7 +47,7 @@ pub struct FromInportValue {
 #[derive(Debug, Clone, PartialEq)]
 pub enum FromImportKind {
     Everything {
-        name: Arc<str>
+        name: Arc<str>,
     },
     Single {
         name: Arc<str>,
@@ -125,9 +125,7 @@ impl FromInportValue {
 
             return Ok(Some(Self {
                 slice: start.merge(&end),
-                kind: FromImportKind::Everything {
-                    name: rename
-                },
+                kind: FromImportKind::Everything { name: rename },
             }));
         });
 
@@ -138,17 +136,14 @@ impl FromInportValue {
                 slice: start.merge(&end),
                 kind: FromImportKind::Single {
                     name,
-                    rename: Some(rename)
+                    rename: Some(rename),
                 },
             }));
         }
 
         return Ok(Some(Self {
             slice: start,
-            kind: FromImportKind::Single {
-                name,
-                rename: None,
-            },
+            kind: FromImportKind::Single { name, rename: None },
         }));
     }
 
